@@ -6,12 +6,8 @@ import pandas as pd
 import json
 import time
 import os
-from dotenv import load_dotenv
-
-load_dotenv()
-
 # ── API Key ───────────────────────────────────────────────────────────────────
-GROQ_API_KEY =st.getenv("GROQ_API_KEY")
+GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
 
 PAGES = ["🏠 Home", "🤖 AI Mentor", "📊 ROI Calculator", "🎯 Admission Predictor", "💰 Education Loan"]
 
