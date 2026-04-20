@@ -6,6 +6,9 @@ import pandas as pd
 import json
 import time
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # ── API Key ───────────────────────────────────────────────────────────────────
 GROQ_API_KEY =os.getenv("new_key_here")
