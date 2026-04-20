@@ -5,7 +5,6 @@ import plotly.express as px
 import pandas as pd
 import json
 import time
-import os
 # ── API Key ───────────────────────────────────────────────────────────────────
 GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
 
