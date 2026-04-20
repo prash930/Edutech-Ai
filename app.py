@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ── API Key ───────────────────────────────────────────────────────────────────
-GROQ_API_KEY =os.getenv("NEW_KEY_HERE")
+GROQ_API_KEY =os.getenv("GROQ_API_KEY")
 
 PAGES = ["🏠 Home", "🤖 AI Mentor", "📊 ROI Calculator", "🎯 Admission Predictor", "💰 Education Loan"]
 
