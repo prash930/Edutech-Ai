@@ -205,6 +205,9 @@ div[data-testid="stAlert"] { border-radius:14px !important; border-left-width:4p
 .info-pill:hover { background:rgba(102,126,234,0.13); transform:scale(1.04); }
 .tip-box { background:linear-gradient(135deg,#fffbeb,#fef3c7); border:1.5px solid #fcd34d; border-radius:14px; padding:0.9rem 1.15rem; font-size:0.84rem; color:#78350f; margin:6px 0; line-height:1.6; box-shadow:0 2px 10px rgba(251,191,36,0.1); transition:all 0.25s cubic-bezier(0.22,1,0.36,1); animation:fadeUp 0.4s cubic-bezier(0.22,1,0.36,1) both; }
 .tip-box:hover { box-shadow:0 6px 20px rgba(251,191,36,0.16); transform:translateY(-2px); }
+/* ════ METRIC VALUE SIZE ════ */
+div[data-testid="stMetricValue"] { font-size: 1rem !important; font-weight: 700 !important; }
+div[data-testid="stMetricLabel"] { font-size: 0.72rem !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -262,25 +265,25 @@ def clean_country(country: str) -> str:
     return country.strip()
 
 # ────────────────────────────────────────────────────────────────────────────
-# Phase 1 AI — country/degree guidance + university world ranking
+# Phase 1 AI — country/degree guidance (no university input)
 # ────────────────────────────────────────────────────────────────────────────
-def ai_phase1(country: str, degree: str, current_uni: str) -> dict:
+def ai_phase1(country: str, degree: str) -> dict:
     cc = clean_country(country)
     prompt = f"""
-You are an expert study-abroad advisor for Indian students.
-Student is from "{current_uni}" and wants to study "{degree}" in "{cc}".
+You are an expert study-abroad advisor with accurate, up-to-date knowledge of university admission requirements.
+Student wants to study "{degree}" in "{cc}".
+
+Before listing exam requirements, use ACCURATE knowledge:
+- English proficiency tests (IELTS/TOEFL/PTE/Duolingo) are required at virtually all universities for non-native English speakers.
+- GRE requirements vary by university — be precise:
+  * Universities that have DROPPED GRE for MS CS (optional/not required): Stanford, MIT, Harvard, Berkeley, Columbia, Cornell, Yale
+  * Universities that STILL REQUIRE GRE for MS CS: CMU (Carnegie Mellon), Georgia Tech, UIUC, Purdue, Texas A&M, Boston University, Northeastern, USC, NYU, Arizona State
+  * When GRE is required at MOST universities in a country for a given degree, list it as "required"
+  * When GRE is optional at many top schools but required at others, list it as "optional" with a clear note
+- Only list an exam as "required" if the majority of universities for this degree+country mandate it.
 
 Respond ONLY with valid JSON (no markdown, no explanation):
 {{
-  "university_info": {{
-    "name": "{current_uni}",
-    "world_rank": "<e.g. #301-400 QS 2024 or Unranked>",
-    "national_rank": "<rank within India if known>",
-    "tier": "<Tier 1 (Top 100)|Tier 2 (101-500)|Tier 3 (501+)|Unranked>",
-    "known_for": "<what the university is known for>",
-    "ranking_source": "<QS World University Rankings 2024 or similar>",
-    "rank_impact": "<how this rank affects admission at target universities>"
-  }},
   "country_guide": {{
     "overview": "<2-3 sentence overview of studying {degree} in {cc}>",
     "demand": "<job demand for this field in {cc}>",
@@ -290,9 +293,9 @@ Respond ONLY with valid JSON (no markdown, no explanation):
     "cons": ["<con1>", "<con2>"]
   }},
   "exams": {{
-    "required": ["<exam1>", "<exam2>"],
-    "optional": ["<exam3>"],
-    "notes": "<brief note about exam requirements for this country+degree>"
+    "required": ["<e.g. TOEFL or IELTS for English proficiency>"],
+    "optional": ["<e.g. GRE — required at CMU/GaTech/UIUC but optional at Stanford/MIT/Berkeley>"],
+    "notes": "<precise note — mention which major universities require GRE and which have waived it>"
   }},
   "passport": {{
     "documents": ["<doc1>", "<doc2>", "<doc3>", "<doc4>", "<doc5>"],
@@ -302,7 +305,29 @@ Respond ONLY with valid JSON (no markdown, no explanation):
   "tips": ["<tip1>", "<tip2>", "<tip3>"]
 }}
 """
-    raw = call_groq(prompt, max_tokens=1100)
+    raw = call_groq(prompt, max_tokens=900)
+    return parse_json(raw)
+
+# ────────────────────────────────────────────────────────────────────────────
+# University World Ranking lookup (called in Phase 2)
+# ────────────────────────────────────────────────────────────────────────────
+def ai_ranking(uni_name: str) -> dict:
+    prompt = f"""
+You are an expert on global university rankings.
+Look up the world ranking of "{uni_name}" (an Indian university/college).
+
+Respond ONLY with valid JSON (no markdown, no explanation):
+{{
+  "name": "{uni_name}",
+  "world_rank": "<e.g. #301-400 QS 2024 or Unranked>",
+  "national_rank": "<rank within India if known>",
+  "tier": "<Tier 1 (Top 100)|Tier 2 (101-500)|Tier 3 (501+)|Unranked>",
+  "known_for": "<what the university is known for>",
+  "ranking_source": "<QS World University Rankings 2024 or similar>",
+  "rank_impact": "<how this rank affects admission chances at foreign universities>"
+}}
+"""
+    raw = call_groq(prompt, max_tokens=400, temp=0.2)
     return parse_json(raw)
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -718,7 +743,7 @@ if phase == 1:
     <div class="hero-phase">
         <div class="phase-badge">📍 Phase 1 of 5 &nbsp;·&nbsp; Planning Stage</div>
         <h1>🤖 AI Study Abroad Mentor</h1>
-        <p>Tell us about yourself and your dream destination — our AI will analyse your university's world ranking, craft a country guide, exam roadmap, and passport checklist.</p>
+        <p>Tell us your name, preferred country, and degree — our AI will craft a country guide, exam roadmap, and passport checklist. Your university's world ranking is checked in Phase 2.</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -730,9 +755,6 @@ if phase == 1:
             student_name = st.text_input("📛 Your Full Name",
                 value=st.session_state["data"].get("student_name", ""),
                 placeholder="e.g. Priya Sharma")
-            current_uni  = st.text_input("🏫 Your Current / Last University or College",
-                value=st.session_state["data"].get("current_uni", ""),
-                placeholder="e.g. Delhi Technological University")
 
         st.markdown("<div class='section-header'>🌍 Destination & Degree</div>", unsafe_allow_html=True)
         with st.container(border=True):
@@ -742,21 +764,18 @@ if phase == 1:
                 index=DEGREES.index(st.session_state["data"]["degree"]) if st.session_state["data"]["degree"] in DEGREES else 0)
 
             st.markdown("<br>", unsafe_allow_html=True)
-            go_btn = st.button("🤖 Generate AI Guidance + Check University Ranking →", use_container_width=True)
+            go_btn = st.button("🤖 Generate AI Guidance →", use_container_width=True)
 
             if go_btn:
                 if not student_name.strip():
                     st.error("Please enter your name.")
-                elif not current_uni.strip():
-                    st.error("Please enter your university / college name.")
                 else:
                     st.session_state["data"]["student_name"] = student_name.strip()
-                    st.session_state["data"]["current_uni"]  = current_uni.strip()
                     st.session_state["data"]["country"]      = country
                     st.session_state["data"]["degree"]       = degree
-                    with st.spinner("🌐 AI is fetching world ranking and crafting your personalised plan…"):
+                    with st.spinner("🌐 AI is crafting your personalised country guide…"):
                         try:
-                            result = ai_phase1(country, degree, current_uni.strip())
+                            result = ai_phase1(country, degree)
                             st.session_state["data"]["phase1_result"] = result
                         except Exception as e:
                             st.error(f"AI Error: {e}")
@@ -766,7 +785,6 @@ if phase == 1:
     with col_info:
         st.markdown("<div class='section-header'>📋 What you'll get</div>", unsafe_allow_html=True)
         for item in [
-            ("🏅", "University World Ranking", "Auto-checks QS ranking of your current college"),
             ("🌍", "Country & Degree Guide",   "Demand, salaries, cost of living, pros & cons"),
             ("📝", "Exam Roadmap",             "Which exams are required vs optional"),
             ("📄", "Passport Checklist",       "Documents, steps & timeline from Passport Seva"),
@@ -786,39 +804,6 @@ if phase == 1:
 
         name_disp = st.session_state["data"].get("student_name", "")
         st.markdown(f"<div class='section-header'>✨ {name_disp}'s Personalised Guide — {clean_country(st.session_state['data']['country'])} · {st.session_state['data']['degree']}</div>", unsafe_allow_html=True)
-
-        # ── University Ranking Card ──
-        uni_info = res.get("university_info", {})
-        if uni_info:
-            r_col1, r_col2 = st.columns([1, 2], gap="large")
-            with r_col1:
-                tier_color = {"Tier 1 (Top 100)": "#34d399", "Tier 2 (101-500)": "#818cf8", "Tier 3 (501+)": "#fbbf24", "Unranked": "#94a3b8"}.get(uni_info.get("tier",""), "#818cf8")
-                st.markdown(f"""
-                <div class="rank-card">
-                    <div class="rank-label">🏅 World Ranking</div>
-                    <div class="rank-num" style="color:{tier_color};">{uni_info.get('world_rank','N/A')}</div>
-                    <div class="rank-name">{uni_info.get('name','')}</div>
-                    <div class="rank-tier" style="color:{tier_color};background:{tier_color}18;border-color:{tier_color}44;">{uni_info.get('tier','')}</div>
-                    <div style="font-size:0.67rem;color:#64748b;margin-top:8px;">Source: {uni_info.get('ranking_source','QS World Rankings')}</div>
-                </div>
-                """, unsafe_allow_html=True)
-            with r_col2:
-                st.markdown(f"""
-                <div class="result-card">
-                    <h3>📚 Known For</h3>
-                    <p>{uni_info.get('known_for','')}</p>
-                </div>
-                <div class="result-card" style="margin-top:8px;border-color:rgba({','.join(str(int(tier_color[i:i+2],16)) for i in (1,3,5))},0.3);">
-                    <h3>🎯 National Rank</h3>
-                    <p>{uni_info.get('national_rank','N/A')}</p>
-                </div>
-                """, unsafe_allow_html=True)
-                st.markdown(f"""
-                <div style="background:rgba(248,113,113,0.07);border:1px solid rgba(248,113,113,0.2);border-radius:12px;padding:0.9rem 1.1rem;margin-top:8px;">
-                    <div style="font-size:0.72rem;color:#f87171;font-weight:700;margin-bottom:4px;">⚡ Impact on Admissions</div>
-                    <div style="font-size:0.83rem;color:#fca5a5;line-height:1.55;">{uni_info.get('rank_impact','')}</div>
-                </div>
-                """, unsafe_allow_html=True)
 
         st.markdown("<hr class='divider'>", unsafe_allow_html=True)
 
@@ -884,8 +869,6 @@ if phase == 1:
                 st.rerun()
 
 # ────────────────────────────────────────────────────────────────────────────
-# PHASE 2 — Profile Evaluation & University Recommendation
-# ────────────────────────────────────────────────────────────────────────────
 elif phase == 2:
     d    = st.session_state["data"]
     cc   = clean_country(d.get("country") or "USA 🇺🇸")
@@ -911,19 +894,62 @@ elif phase == 2:
             internships = st.number_input("Internships Completed", 0, 10, 1)
         with a3:
             research    = st.number_input("Research Papers Published", 0, 20, 0)
-            uni_name    = st.text_input("Your University", d.get("current_uni", ""))
 
-        st.markdown("<div class='section-header'>📝 Exam Scores</div>", unsafe_allow_html=True)
-        e1, e2, e3 = st.columns(3)
-        with e1:
-            ielts_opt = st.selectbox("IELTS", ["Score entered", "Not Given"])
-            ielts_val = st.number_input("IELTS Score", 0.0, 9.0, 7.0, 0.5, disabled=(ielts_opt == "Not Given"))
-        with e2:
-            gre_opt   = st.selectbox("GRE", ["Score entered", "Not Given"])
-            gre_val   = st.number_input("GRE Score (260–340)", 260, 340, 310, disabled=(gre_opt == "Not Given"))
-        with e3:
-            gmat_opt  = st.selectbox("GMAT", ["Score entered", "Not Given"])
-            gmat_val  = st.number_input("GMAT Score (200–800)", 200, 800, 650, disabled=(gmat_opt == "Not Given"))
+        # ── Dynamic Exam Scores (based on Phase 1 AI exam requirements) ──
+        p1_exams     = (st.session_state["data"].get("phase1_result") or {}).get("exams", {})
+        req_exams    = p1_exams.get("required", [])
+        opt_exams    = p1_exams.get("optional", [])
+        all_exams    = req_exams + [e for e in opt_exams if e not in req_exams]
+
+        # Fallback if Phase 1 not done yet
+        if not all_exams:
+            all_exams = ["IELTS", "GRE"]
+
+        # Score ranges for known exams
+        EXAM_RANGES = {
+            "GRE":       ("number", 260,  340,  310,  1),
+            "GMAT":      ("number", 200,  800,  650,  10),
+            "IELTS":     ("float",  0.0,  9.0,  7.0,  0.5),
+            "TOEFL":     ("number", 0,    120,  90,   1),
+            "PTE":       ("number", 10,   90,   65,   1),
+            "DUOLINGO":  ("number", 10,   160,  110,  5),
+            "SAT":       ("number", 400,  1600, 1200, 10),
+            "ACT":       ("number", 1,    36,   24,   1),
+        }
+
+        st.markdown("<div class='section-header'>📝 Exam Scores — Commonly Required for your course & country</div>", unsafe_allow_html=True)
+        st.markdown("""
+        <div style='background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.3);border-radius:12px;
+                    padding:0.7rem 1rem;margin-bottom:0.8rem;font-size:0.82rem;color:#fde68a;line-height:1.5;'>
+            <strong>⚠️ Note:</strong> Exam requirements <strong>vary by university</strong>.
+            For example, <strong>Stanford, MIT, CMU</strong> no longer require GRE for MS CS (made optional/waived since 2022).
+            Always verify on each university's official admissions page before applying.
+        </div>
+        """, unsafe_allow_html=True)
+        if p1_exams.get("notes"):
+            st.caption(f"ℹ️ {p1_exams['notes']}")
+
+        exam_scores  = {}
+        exam_widgets = []
+        ex_cols = st.columns(3)
+        for i, exam_name in enumerate(all_exams):
+            key_upper = exam_name.upper().split("/")[0].strip()   # e.g. "IELTS/TOEFL" → "IELTS"
+            is_req    = exam_name in req_exams
+            label     = f"{exam_name}{' ✳️' if is_req else ' (optional)'}"
+            with ex_cols[i % 3]:
+                opt = st.selectbox(label, ["Score entered", "Not Given"], key=f"exam_opt_{i}")
+                if key_upper in EXAM_RANGES:
+                    kind, mn, mx, default, step = EXAM_RANGES[key_upper]
+                    if kind == "float":
+                        val = st.number_input(f"{exam_name} Score", float(mn), float(mx), float(default), float(step),
+                                             key=f"exam_val_{i}", disabled=(opt == "Not Given"))
+                    else:
+                        val = st.number_input(f"{exam_name} Score", int(mn), int(mx), int(default),
+                                             key=f"exam_val_{i}", disabled=(opt == "Not Given"))
+                else:
+                    val = st.text_input(f"{exam_name} Score", placeholder="Enter score",
+                                       key=f"exam_val_{i}", disabled=(opt == "Not Given"))
+                exam_widgets.append((exam_name, opt, val))
 
         st.markdown("<div class='section-header'>📄 Application Documents</div>", unsafe_allow_html=True)
         d1, d2, d3 = st.columns(3)
@@ -938,6 +964,12 @@ elif phase == 2:
         submitted = st.form_submit_button("🤖 Evaluate My Profile & Find Universities →", use_container_width=True)
 
     if submitted:
+        # Build dynamic exam_scores dict from widget values
+        exam_scores_dict = {
+            name: (val if opt == "Score entered" else "Not Given")
+            for name, opt, val in exam_widgets
+        }
+        saved_uni = d.get("current_uni", "").strip()
         profile = {
             "student_name":    name,
             "target_country":  cc,
@@ -947,20 +979,21 @@ elif phase == 2:
             "work_exp_yrs":    work_exp,
             "internships":     internships,
             "research_papers": research,
-            "university":      uni_name,
-            "ielts":           ielts_val if ielts_opt == "Score entered" else "Not Given",
-            "gre":             gre_val  if gre_opt  == "Score entered" else "Not Given",
-            "gmat":            gmat_val if gmat_opt == "Score entered" else "Not Given",
+            "university":      saved_uni,
+            "exam_scores":     exam_scores_dict,
             "sop":             sop_qual,
             "lor_count":       lor_count,
             "lor_quality":     lor_qual,
             "resume":          resume_qual,
         }
         st.session_state["data"]["profile"] = profile
-        with st.spinner("🤖 AI is evaluating your profile and matching universities…"):
+        with st.spinner("🤖 AI is evaluating your profile, matching universities & fetching your college ranking…"):
             try:
                 result = ai_phase2(profile)
                 st.session_state["data"]["phase2_result"] = result
+                if saved_uni:
+                    ranking = ai_ranking(saved_uni)
+                    st.session_state["data"]["uni_ranking"] = ranking
             except Exception as e:
                 st.error(f"AI Error: {e}")
                 st.stop()
@@ -968,6 +1001,42 @@ elif phase == 2:
 
     p2_res = st.session_state["data"].get("phase2_result")
     if p2_res:
+        # ── University Ranking Card ──
+        uni_rnk = st.session_state["data"].get("uni_ranking")
+        if uni_rnk:
+            st.markdown("<hr class='divider'>", unsafe_allow_html=True)
+            st.markdown("<div class='section-header'>🏅 Your University World Ranking</div>", unsafe_allow_html=True)
+            tier_color = {"Tier 1 (Top 100)": "#34d399", "Tier 2 (101-500)": "#818cf8", "Tier 3 (501+)": "#fbbf24", "Unranked": "#94a3b8"}.get(uni_rnk.get("tier",""), "#818cf8")
+            rk1, rk2, rk3 = st.columns([1, 1, 2], gap="large")
+            with rk1:
+                st.markdown(f"""
+                <div class="rank-card">
+                    <div class="rank-label">🏅 World Ranking</div>
+                    <div class="rank-num" style="color:{tier_color};">{uni_rnk.get('world_rank','N/A')}</div>
+                    <div class="rank-name">{uni_rnk.get('name','')}</div>
+                    <div class="rank-tier" style="color:{tier_color};background:{tier_color}18;border-color:{tier_color}44;">{uni_rnk.get('tier','')}</div>
+                    <div style="font-size:0.67rem;color:#64748b;margin-top:8px;">Source: {uni_rnk.get('ranking_source','QS World Rankings')}</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with rk2:
+                st.markdown(f"""
+                <div class="result-card">
+                    <h3>🎯 National Rank</h3>
+                    <p>{uni_rnk.get('national_rank','N/A')}</p>
+                </div>
+                <div class="result-card" style="margin-top:8px;">
+                    <h3>📚 Known For</h3>
+                    <p>{uni_rnk.get('known_for','')}</p>
+                </div>
+                """, unsafe_allow_html=True)
+            with rk3:
+                st.markdown(f"""
+                <div style="background:rgba(248,113,113,0.07);border:1px solid rgba(248,113,113,0.2);border-radius:14px;padding:1.1rem 1.3rem;height:100%;">
+                    <div style="font-size:0.72rem;color:#f87171;font-weight:700;margin-bottom:6px;">⚡ HOW THIS RANK AFFECTS YOUR ADMISSIONS</div>
+                    <div style="font-size:0.87rem;color:#fca5a5;line-height:1.6;">{uni_rnk.get('rank_impact','')}</div>
+                </div>
+                """, unsafe_allow_html=True)
+
         st.markdown("<hr class='divider'>", unsafe_allow_html=True)
         scores  = p2_res.get("profile_score", {})
         overall = scores.get("overall", 70)
@@ -1321,14 +1390,11 @@ elif phase == 5:
     p3_res  = d.get("phase3_result") or {}
     scores  = p2_res.get("profile_score", {})
     roi     = p3_res.get("roi", {})
-    uni_inf = (d.get("phase1_result") or {}).get("university_info", {})
-
-    m1, m2, m3, m4, m5 = st.columns(5)
-    m1.metric("🏅 Uni Rank",         uni_inf.get("world_rank","N/A"))
-    m2.metric("📊 Profile Score",    f"{scores.get('overall','—')}/100")
-    m3.metric("🏛️ Target Uni",       (d.get("selected_uni") or "N/A")[:18]+"…" if len(d.get("selected_uni") or "") > 18 else (d.get("selected_uni") or "N/A"))
-    m4.metric("💰 Net Cost",         f"₹{roi.get('net_cost_lakhs','?')}L")
-    m5.metric("📈 5-Yr Gain",        f"₹{roi.get('5yr_net_gain_lakhs','?')}L")
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("📊 Profile Score",    f"{scores.get('overall','—')}/100")
+    m2.metric("🏛️ Target Uni",       (d.get("selected_uni") or "N/A")[:18]+"…" if len(d.get("selected_uni") or "") > 18 else (d.get("selected_uni") or "N/A"))
+    m3.metric("💰 Net Cost",         f"₹{roi.get('net_cost_lakhs','?')}L")
+    m4.metric("📈 5-Yr Gain",        f"₹{roi.get('5yr_net_gain_lakhs','?')}L")
 
     st.markdown("<hr class='divider'>", unsafe_allow_html=True)
 
@@ -1342,11 +1408,6 @@ elif phase == 5:
         st.markdown("""<div class="report-section"><h3>📍 Phase 1 — Planning</h3>""", unsafe_allow_html=True)
         p1r = d.get("phase1_result") or {}
         cg  = p1r.get("country_guide", {})
-        uni_info = p1r.get("university_info", {})
-        st.markdown(f"**👤 Name:** {name}  \n**🏫 College:** {d.get('current_uni','N/A')}  \n**🌍 Destination:** {clean_country(d.get('country','N/A'))}  \n**📚 Degree:** {d.get('degree','N/A')}")
-        if uni_info:
-            sc = {"Tier 1 (Top 100)":"🟢","Tier 2 (101-500)":"🟡","Tier 3 (501+)":"🟠","Unranked":"⚪"}.get(uni_info.get("tier",""),"⚪")
-            st.markdown(f"**🏅 World Rank:** {uni_info.get('world_rank','N/A')} &nbsp; {sc} {uni_info.get('tier','')}")
         ex = p1r.get("exams", {})
         st.markdown(f"**📝 Required Exams:** {', '.join(ex.get('required',[]))}")
         st.markdown("</div>", unsafe_allow_html=True)
@@ -1396,33 +1457,7 @@ elif phase == 5:
             st.markdown(f"**AI Recommendation:** {p4r['best_recommendation'][:120]}…")
         st.markdown("</div>", unsafe_allow_html=True)
 
-    st.markdown("<hr class='divider'>", unsafe_allow_html=True)
 
-    # ── DOWNLOAD BUTTON ──
-    st.markdown("<div class='section-header'>⬇️ Download Your Report</div>", unsafe_allow_html=True)
-    st.markdown("""
-    <div style='background:linear-gradient(135deg,rgba(52,211,153,0.08),rgba(16,185,129,0.05));border:1px solid rgba(52,211,153,0.3);border-radius:16px;padding:1.5rem 2rem;margin-bottom:1rem;'>
-        <div style='font-size:1rem;font-weight:700;color:#34d399;margin-bottom:0.5rem;'>📄 HTML Report — Fully Formatted</div>
-        <div style='font-size:0.85rem;color:#94a3b8;line-height:1.6;'>
-            Downloads a beautifully formatted HTML file with your complete 4-phase study abroad plan.
-            Open it in any browser to view — or print it as a PDF using Ctrl+P → Save as PDF.
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    html_report = build_html_report(d)
-    fname = f"study_abroad_report_{name.replace(' ','_').lower()}_{datetime.now().strftime('%Y%m%d')}.html"
-
-    dl_col1, dl_col2, dl_col3 = st.columns([1,2,1])
-    with dl_col2:
-        st.download_button(
-            label="⬇️ Download Full Report (HTML)",
-            data=html_report.encode("utf-8"),
-            file_name=fname,
-            mime="text/html",
-            use_container_width=True,
-        )
-        st.markdown(f"<div style='text-align:center;font-size:0.72rem;color:#64748b;margin-top:6px;'>File: {fname} &nbsp;·&nbsp; Open in browser → Print → Save as PDF</div>", unsafe_allow_html=True)
 
     st.markdown("<hr class='divider'>", unsafe_allow_html=True)
 
